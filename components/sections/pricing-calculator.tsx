@@ -28,45 +28,173 @@ export function PricingCalculator() {
         ]
       : null,
     fetcher,
-    { fallbackData: DEFAULT_PRICE, revalidateOnFocus: false, shouldRetryOnError: false }
+    { fallbackData: fallbackQuote, revalidateOnFocus: false, shouldRetryOnError: false }
   );
 
-  const result = data ?? DEFAULT_PRICE;
+  const result = submitted ? data ?? fallbackQuote : DEFAULT_PRICE;
+  const discountAmount = discountPercent ? Math.round((result.amount * discountPercent) / 100) : 0;
+  const finalAmount = result.amount - discountAmount;
+
+  function rollDiscount() {
+    const base = result.amount;
+    const minimum = base >= 30000 ? 22 : base >= 18000 ? 16 : 8;
+    const spread = base >= 30000 ? 8 : base >= 18000 ? 7 : 5;
+    setDiscountPercent(minimum + Math.floor(Math.random() * (spread + 1)));
+  }
 
   return (
     <div>
-      <h3 className="text-xl font-semibold text-white">动态报价向导</h3>
-      <p className="mt-2 text-sm text-white/70">即使后端未就绪，系统也会展示 fallbackData 报价。</p>
-      <div className="mt-6 space-y-4">
-        <label className="block text-sm text-white/80">
-          目标项目
-          <input
-            className="mt-2 w-full rounded-xl border border-white/20 bg-white/10 px-3 py-2"
-            value={form.target}
-            onChange={(e) => setForm((prev) => ({ ...prev, target: e.target.value }))}
-          />
-        </label>
-        <label className="block text-sm text-white/80">
-          紧急程度
-          <select
-            className="mt-2 w-full rounded-xl border border-white/20 bg-[#0b1224] px-3 py-2"
-            value={form.urgency}
-            onChange={(e) => setForm((prev) => ({ ...prev, urgency: e.target.value }))}
-          >
-            <option>标准</option>
-            <option>加急</option>
-            <option>冲刺</option>
-          </select>
-        </label>
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-200/80">Quote Modal</p>
+      <h3 className="mt-2 text-xl font-semibold text-white">{serviceTitle} · 动态报价</h3>
+      <p className="mt-2 text-sm text-white/70">
+        不跳转新页面；系统会把当前会话、设备与访问时间一并写入报价请求，后端可用请求 IP 做进一步分层。
+      </p>
+      <div className="mt-5 space-y-4">
+        <Slider
+          label={`申请地区：${regions[form.regionIndex]}`}
+          value={form.regionIndex}
+          min={0}
+          max={regions.length - 1}
+          step={1}
+          onChange={(value) => {
+            setForm((prev) => ({ ...prev, regionIndex: value }));
+            setSubmitted(false);
+            setDiscountPercent(null);
+          }}
+        />
+        <Slider
+          label={`服务类型：${bundles[form.bundleIndex]}`}
+          value={form.bundleIndex}
+          min={0}
+          max={bundles.length - 1}
+          step={1}
+          onChange={(value) => {
+            setForm((prev) => ({ ...prev, bundleIndex: value }));
+            setSubmitted(false);
+            setDiscountPercent(null);
+          }}
+        />
+        <Slider
+          label={`英语基础：${form.englishLevel}/100`}
+          value={form.englishLevel}
+          min={0}
+          max={100}
+          onChange={(value) => {
+            setForm((prev) => ({ ...prev, englishLevel: value }));
+            setSubmitted(false);
+            setDiscountPercent(null);
+          }}
+        />
+        <Slider
+          label={`加急程度：${form.urgency}/100`}
+          value={form.urgency}
+          min={0}
+          max={100}
+          onChange={(value) => {
+            setForm((prev) => ({ ...prev, urgency: value }));
+            setSubmitted(false);
+            setDiscountPercent(null);
+          }}
+        />
+        <Slider
+          label={`语言服务占比：${form.withLanguage}%`}
+          value={form.withLanguage}
+          min={0}
+          max={100}
+          onChange={(value) => {
+            setForm((prev) => ({ ...prev, withLanguage: value }));
+            setSubmitted(false);
+            setDiscountPercent(null);
+          }}
+        />
       </div>
-      <Button className="mt-6" onClick={() => setSubmitted(true)}>
-        {isLoading ? "计算中..." : "获取报价"}
-      </Button>
+      <div className="mt-6 flex flex-wrap gap-3">
+        <Button onClick={() => setSubmitted(true)}>{isLoading ? "计算中..." : "获取报价"}</Button>
+        <Button variant="ghost" className="border border-white/15 px-5 py-3" disabled={!submitted || discountPercent !== null} onClick={rollDiscount}>
+          {discountPercent === null ? "Roll 限时折扣" : "折扣已锁定"}
+        </Button>
+      </div>
       <div className="mt-6 rounded-2xl border border-white/20 bg-white/5 p-4 text-sm text-white/85">
-        <p>估算价格：{result.estimate}</p>
-        <p>服务周期：{result.timeline}</p>
-        <p>推荐方案：{result.package}</p>
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <p className="text-white/60">系统报价</p>
+            <p className="font-mono text-3xl text-white">{formatCny(result.amount)}</p>
+          </div>
+          {discountPercent !== null && (
+            <div className="rounded-xl border border-amber-200/40 bg-amber-200/10 px-3 py-2 text-right text-amber-100">
+              <p className="text-xs">截图专属折扣</p>
+              <p className="font-mono text-xl">-{discountPercent}%</p>
+            </div>
+          )}
+        </div>
+        <div className="mt-4 grid gap-2 text-xs text-white/70 sm:grid-cols-2">
+          <p>服务周期：{result.timeline}</p>
+          <p>推荐方案：{result.package}</p>
+          <p>会话编号：{payload.session_id}</p>
+          <p>报价来源：{result.confidence}</p>
+        </div>
+        {discountPercent !== null && (
+          <div className="mt-4 rounded-xl bg-black/25 p-3">
+            <p className="text-white/70">折后锁定价</p>
+            <p className="font-mono text-2xl text-amber-200">{formatCny(finalAmount)}</p>
+            <p className="mt-2 text-xs text-white/60">请截图此报价并添加微信 Paulwie；截图有效期以当前访问时间为准。</p>
+          </div>
+        )}
       </div>
     </div>
   );
+}
+
+type SliderProps = {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  onChange: (value: number) => void;
+};
+
+function Slider({ label, value, min, max, step = 1, onChange }: SliderProps) {
+  return (
+    <label className="block text-sm text-white/80">
+      <span>{label}</span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="mt-2 h-2 w-full cursor-pointer appearance-none rounded-lg bg-white/20 accent-amber-300"
+      />
+    </label>
+  );
+}
+
+function readCachedVisitor() {
+  if (typeof window === "undefined") return null;
+  const raw = localStorage.getItem(visitorCacheKey);
+  return raw ? (JSON.parse(raw) as VisitorContext) : null;
+}
+
+function calculateFallbackQuote(form: { regionIndex: number; bundleIndex: number; englishLevel: number; urgency: number; withLanguage: number }, serviceTitle: string): QuoteResult {
+  const regionBase = [12800, 19800, 15800, 14800, 17800, 13800, 9800][form.regionIndex] ?? 12800;
+  const bundleWeight = [1, 1.45, 0.75, 0.68, 0.58][form.bundleIndex] ?? 1;
+  const languageLift = 1 + form.withLanguage / 250;
+  const urgencyLift = 1 + form.urgency / 180;
+  const levelLift = 1 + (100 - form.englishLevel) / 320;
+  const serviceLift = serviceTitle.includes("博士") || serviceTitle.includes("申请") ? 1.18 : 1;
+  const amount = Math.round((regionBase * bundleWeight * languageLift * urgencyLift * levelLift * serviceLift) / 100) * 100;
+
+  return {
+    estimate: formatCny(amount),
+    amount,
+    timeline: form.urgency > 70 ? "7-14 天加急" : "3-6 周",
+    package: `${regions[form.regionIndex]} · ${bundles[form.bundleIndex]}`,
+    confidence: "frontend-fallback"
+  };
+}
+
+function formatCny(amount: number) {
+  return `¥${amount.toLocaleString("zh-CN")}`;
 }
