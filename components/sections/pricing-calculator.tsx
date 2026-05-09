@@ -1,42 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import useSWR from "swr";
 import { Button } from "@/components/ui/button";
 
-type PricingCalculatorProps = {
-  serviceTitle?: string;
-  defaultBundle?: number;
-};
-
-type VisitorContext = {
-  sessionId: string;
-  capturedAt: string;
-  timezone: string;
-  locale: string;
-  userAgent: string;
-  screen: string;
-};
-
-type QuoteResult = {
-  estimate: string;
-  amount: number;
-  timeline: string;
-  package: string;
-  confidence: string;
-};
-
-const DEFAULT_PRICE: QuoteResult = {
-  estimate: "¥12,800",
-  amount: 12800,
-  timeline: "3-6 周",
-  package: "英国硕士申请 + 语言提升",
-  confidence: "fallback"
-};
-
-const regions = ["英国", "美国", "香港", "澳洲", "欧陆", "日韩", "东南亚"];
-const bundles = ["仅留学申请", "留学 + 语言套餐", "仅语言提升", "课程作业 / 学术护航", "求职与海外落地"];
-const visitorCacheKey = "paulwie-latest-visitor-context";
+const DEFAULT_PRICE = { estimate: "¥9,800", timeline: "2-4 周", package: "留学申请 + 语言提升" };
 
 const fetcher = async ([url, payload]: [string, RequestInit]) => {
   const response = await fetch(url, payload);
@@ -44,54 +12,18 @@ const fetcher = async ([url, payload]: [string, RequestInit]) => {
   return response.json();
 };
 
-export function PricingCalculator({ serviceTitle = "专属学术规划", defaultBundle = 1 }: PricingCalculatorProps) {
-  const [visitor, setVisitor] = useState<VisitorContext | null>(null);
-  const [form, setForm] = useState({
-    regionIndex: 0,
-    bundleIndex: defaultBundle,
-    englishLevel: 65,
-    urgency: 35,
-    withLanguage: defaultBundle === 2 ? 100 : 60
-  });
+export function PricingCalculator() {
+  const [form, setForm] = useState({ target: "英国硕士", urgency: "标准" });
   const [submitted, setSubmitted] = useState(false);
-  const [discountPercent, setDiscountPercent] = useState<number | null>(null);
 
-  useEffect(() => {
-    const sessionId = crypto.randomUUID();
-    const snapshot: VisitorContext = {
-      sessionId,
-      capturedAt: new Date().toISOString(),
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      locale: navigator.language,
-      userAgent: navigator.userAgent,
-      screen: `${window.screen.width}×${window.screen.height}@${window.devicePixelRatio}`
-    };
-
-    localStorage.setItem(visitorCacheKey, JSON.stringify(snapshot));
-    setVisitor(snapshot);
-  }, []);
-
-  const visitorForQuote = visitor ?? readCachedVisitor();
-  const fallbackQuote = useMemo(() => calculateFallbackQuote(form, serviceTitle), [form, serviceTitle]);
-  const payload = {
-    region: regions[form.regionIndex],
-    bundle: bundles[form.bundleIndex],
-    service_title: serviceTitle,
-    english_level: form.englishLevel,
-    urgency: form.urgency,
-    with_language_ratio: form.withLanguage,
-    session_id: visitorForQuote?.sessionId ?? "pending-session",
-    visitor_context: visitorForQuote
-  };
-
-  const { data, isLoading } = useSWR<QuoteResult>(
+  const { data, isLoading } = useSWR(
     submitted
       ? [
           "/api/quote",
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(form)
           }
         ]
       : null,
