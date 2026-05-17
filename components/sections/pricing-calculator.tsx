@@ -1,10 +1,50 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { Button } from "@/components/ui/button";
 
-const DEFAULT_PRICE = { estimate: "¥9,800", timeline: "2-4 周", package: "留学申请 + 语言提升" };
+type PricingCalculatorProps = {
+  serviceTitle?: string;
+  defaultBundle?: number;
+};
+
+type VisitorContext = {
+  sessionId: string;
+  capturedAt: string;
+  timezone: string;
+  locale: string;
+  userAgent: string;
+  screen: string;
+};
+
+type QuoteResult = {
+  estimate: string;
+  amount: number;
+  timeline: string;
+  package: string;
+  confidence: string;
+};
+
+type QuoteForm = {
+  regionIndex: number;
+  bundleIndex: number;
+  englishLevel: number;
+  urgency: number;
+  withLanguage: number;
+};
+
+const DEFAULT_PRICE: QuoteResult = {
+  estimate: "¥12,800",
+  amount: 12800,
+  timeline: "3-6 周",
+  package: "英国硕士申请 + 语言提升",
+  confidence: "fallback"
+};
+
+const regions = ["英国", "美国", "香港", "澳洲", "欧陆", "日韩", "东南亚"];
+const bundles = ["仅留学申请", "留学 + 语言套餐", "仅语言提升", "课程作业 / 学术护航", "求职与海外落地"];
+const visitorCacheKey = "paulwie-latest-visitor-context";
 
 const fetcher = async ([url, payload]: [string, RequestInit]) => {
   const response = await fetch(url, payload);
@@ -12,28 +52,62 @@ const fetcher = async ([url, payload]: [string, RequestInit]) => {
   return response.json();
 };
 
-export function PricingCalculator() {
-  const [form, setForm] = useState({ target: "英国硕士", urgency: "标准" });
+export function PricingCalculator({ serviceTitle = "专属学术规划", defaultBundle = 1 }: PricingCalculatorProps) {
+  const [visitor, setVisitor] = useState<VisitorContext | null>(null);
+  const [form, setForm] = useState<QuoteForm>({
+    regionIndex: 0,
+    bundleIndex: defaultBundle,
+    englishLevel: 65,
+    urgency: 35,
+    withLanguage: defaultBundle === 2 ? 100 : 60
+  });
   const [submitted, setSubmitted] = useState(false);
+  const [discountPercent, setDiscountPercent] = useState<number | null>(null);
 
-  const { data, isLoading } = useSWR(
+  useEffect(() => {
+    const cachedVisitor = readCachedVisitor();
+    const currentVisitor = createVisitorSnapshot();
+    writeCachedVisitor(currentVisitor);
+    setVisitor(currentVisitor ?? cachedVisitor);
+  }, []);
+
+  const quoteFallback = useMemo(() => calculateFallbackQuote(form, serviceTitle), [form, serviceTitle]);
+  const visitorForQuote = visitor;
+  const payload = {
+    region: regions[form.regionIndex],
+    bundle: bundles[form.bundleIndex],
+    service_title: serviceTitle,
+    english_level: form.englishLevel,
+    urgency: form.urgency,
+    with_language_ratio: form.withLanguage,
+    session_id: visitorForQuote?.sessionId ?? "pending-session",
+    visitor_context: visitorForQuote
+  };
+
+  const { data, isLoading } = useSWR<QuoteResult>(
     submitted
       ? [
           "/api/quote",
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(form)
+            body: JSON.stringify(payload)
           }
         ]
       : null,
     fetcher,
-    { fallbackData: fallbackQuote, revalidateOnFocus: false, shouldRetryOnError: false }
+    { fallbackData: quoteFallback, revalidateOnFocus: false, shouldRetryOnError: false }
   );
 
-  const result = submitted ? data ?? fallbackQuote : DEFAULT_PRICE;
+  const result = submitted ? data ?? quoteFallback : DEFAULT_PRICE;
   const discountAmount = discountPercent ? Math.round((result.amount * discountPercent) / 100) : 0;
   const finalAmount = result.amount - discountAmount;
+
+  function resetQuote(nextForm: QuoteForm) {
+    setForm(nextForm);
+    setSubmitted(false);
+    setDiscountPercent(null);
+  }
 
   function rollDiscount() {
     const base = result.amount;
@@ -56,11 +130,7 @@ export function PricingCalculator() {
           min={0}
           max={regions.length - 1}
           step={1}
-          onChange={(value) => {
-            setForm((prev) => ({ ...prev, regionIndex: value }));
-            setSubmitted(false);
-            setDiscountPercent(null);
-          }}
+          onChange={(value) => resetQuote({ ...form, regionIndex: value })}
         />
         <Slider
           label={`服务类型：${bundles[form.bundleIndex]}`}
@@ -68,44 +138,28 @@ export function PricingCalculator() {
           min={0}
           max={bundles.length - 1}
           step={1}
-          onChange={(value) => {
-            setForm((prev) => ({ ...prev, bundleIndex: value }));
-            setSubmitted(false);
-            setDiscountPercent(null);
-          }}
+          onChange={(value) => resetQuote({ ...form, bundleIndex: value })}
         />
         <Slider
           label={`英语基础：${form.englishLevel}/100`}
           value={form.englishLevel}
           min={0}
           max={100}
-          onChange={(value) => {
-            setForm((prev) => ({ ...prev, englishLevel: value }));
-            setSubmitted(false);
-            setDiscountPercent(null);
-          }}
+          onChange={(value) => resetQuote({ ...form, englishLevel: value })}
         />
         <Slider
           label={`加急程度：${form.urgency}/100`}
           value={form.urgency}
           min={0}
           max={100}
-          onChange={(value) => {
-            setForm((prev) => ({ ...prev, urgency: value }));
-            setSubmitted(false);
-            setDiscountPercent(null);
-          }}
+          onChange={(value) => resetQuote({ ...form, urgency: value })}
         />
         <Slider
           label={`语言服务占比：${form.withLanguage}%`}
           value={form.withLanguage}
           min={0}
           max={100}
-          onChange={(value) => {
-            setForm((prev) => ({ ...prev, withLanguage: value }));
-            setSubmitted(false);
-            setDiscountPercent(null);
-          }}
+          onChange={(value) => resetQuote({ ...form, withLanguage: value })}
         />
       </div>
       <div className="mt-6 flex flex-wrap gap-3">
@@ -171,13 +225,41 @@ function Slider({ label, value, min, max, step = 1, onChange }: SliderProps) {
   );
 }
 
-function readCachedVisitor() {
+function createVisitorSnapshot() {
   if (typeof window === "undefined") return null;
-  const raw = localStorage.getItem(visitorCacheKey);
-  return raw ? (JSON.parse(raw) as VisitorContext) : null;
+
+  return {
+    sessionId: createSessionId(),
+    capturedAt: new Date().toISOString(),
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    locale: navigator.language,
+    userAgent: navigator.userAgent,
+    screen: `${window.screen.width}×${window.screen.height}@${window.devicePixelRatio}`
+  } satisfies VisitorContext;
 }
 
-function calculateFallbackQuote(form: { regionIndex: number; bundleIndex: number; englishLevel: number; urgency: number; withLanguage: number }, serviceTitle: string): QuoteResult {
+function readCachedVisitor() {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = localStorage.getItem(visitorCacheKey);
+    return raw ? (JSON.parse(raw) as VisitorContext) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedVisitor(visitor: VisitorContext | null) {
+  if (typeof window === "undefined" || !visitor) return;
+
+  try {
+    localStorage.setItem(visitorCacheKey, JSON.stringify(visitor));
+  } catch {
+    // Storage can be unavailable in restricted web containers or privacy modes.
+  }
+}
+
+function calculateFallbackQuote(form: QuoteForm, serviceTitle: string): QuoteResult {
   const regionBase = [12800, 19800, 15800, 14800, 17800, 13800, 9800][form.regionIndex] ?? 12800;
   const bundleWeight = [1, 1.45, 0.75, 0.68, 0.58][form.bundleIndex] ?? 1;
   const languageLift = 1 + form.withLanguage / 250;
@@ -193,6 +275,10 @@ function calculateFallbackQuote(form: { regionIndex: number; bundleIndex: number
     package: `${regions[form.regionIndex]} · ${bundles[form.bundleIndex]}`,
     confidence: "frontend-fallback"
   };
+}
+
+function createSessionId() {
+  return globalThis.crypto?.randomUUID?.() ?? `session-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function formatCny(amount: number) {
