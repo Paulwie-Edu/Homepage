@@ -1,3 +1,4 @@
+import { ExamPricingShowcase } from "@/components/sections/exam-pricing-showcase";
 import { HeroSection } from "@/components/sections/hero-section";
 import { MediaHub } from "@/components/sections/media-hub";
 import { ServiceShowcase } from "@/components/sections/service-showcase";
@@ -9,6 +10,7 @@ export default function Home() {
     <main>
       <HeroSection />
       <StatsBar />
+      <ExamPricingShowcase />
       <ServiceShowcase />
       <MediaHub />
       <SocialStrip />
