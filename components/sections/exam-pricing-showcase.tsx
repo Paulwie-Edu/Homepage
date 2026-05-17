@@ -17,6 +17,9 @@ type ExamQuote = {
     confidence: string;
     capturedAt: string;
     deviceTier: string;
+    requestIp?: string;
+    locale?: string;
+    timezone?: string;
   };
 };
 
@@ -74,7 +77,7 @@ const exams: Array<{
   },
   {
     key: "other",
-    logo: "PTE+",
+    logo: "其他",
     title: "其他语言考试",
     proof: "PTE 90 · TOEIC 990 · LanguageCert C1 High · CAE/CPE C2",
     accent: "from-cyan-300/30 to-teal-500/10"
@@ -154,6 +157,7 @@ export function ExamPricingShowcase() {
   const [loading, setLoading] = useState(false);
   const [bet, setBet] = useState<Bet>("big");
   const [dice, setDice] = useState<number | null>(null);
+  const [debugOpen, setDebugOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const activeExam = exams.find((exam) => exam.key === active) ?? exams[0];
   const activeState = examState[active];
@@ -161,10 +165,15 @@ export function ExamPricingShowcase() {
   const wonDiscount = dice !== null && ((bet === "big" && dice >= 4) || (bet === "small" && dice <= 3));
   const finalAmount = wonDiscount ? quote.amount - 500 : quote.amount;
   const visitor = useMemo(() => buildVisitorContext(), []);
+  const debugPayload = {
+    visitor,
+    activeExam: active,
+    activeInputs: activeState,
+    latestQuoteMeta: quote.quoteMeta
+  };
 
   function updateActive(next: ExamKey) {
     setActive(next);
-    setDice(null);
     const index = exams.findIndex((exam) => exam.key === next);
     const width = panelRef.current?.clientWidth ?? 0;
     panelRef.current?.scrollTo({ left: width * index, behavior: "smooth" });
@@ -172,12 +181,10 @@ export function ExamPricingShowcase() {
 
   function patchActive(patch: Partial<ExamState>) {
     setExamState((current) => ({ ...current, [active]: { ...current[active], ...patch } }));
-    setDice(null);
   }
 
   async function requestQuote() {
     setLoading(true);
-    setDice(null);
 
     try {
       const response = await fetch("/api/exam-quote", {
@@ -206,7 +213,7 @@ export function ExamPricingShowcase() {
   }
 
   return (
-    <section className="px-4 py-16 md:py-24">
+    <section id="exam-pricing" className="px-4 py-16 md:py-24">
       <div className="mx-auto max-w-6xl">
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
@@ -225,12 +232,14 @@ export function ExamPricingShowcase() {
                     <span className="inline-flex rounded-2xl border border-white/25 bg-black/20 px-4 py-2 font-mono text-sm font-semibold text-white">{exam.logo}</span>
                     <h3 className="mt-5 text-2xl font-semibold text-white md:text-4xl">{exam.title}</h3>
                     <p className="mt-3 text-sm text-white/70">{exam.proof}</p>
-                    <DecisionTree exam={exam.key} />
+                    <ExamHighlights exam={exam.key} />
                   </div>
                   <div className="glass w-full rounded-3xl p-4 lg:max-w-md">
                     <Controls exam={exam.key} state={activeState} onChange={patchActive} />
                     <Button className="mt-5 w-full" onClick={requestQuote}>{loading && active === exam.key ? "生成报价中..." : "生成截图报价"}</Button>
-                    <QuoteCard quote={quote} bet={bet} dice={dice} finalAmount={finalAmount} wonDiscount={wonDiscount} onBet={setBet} onRoll={() => setDice(1 + Math.floor(Math.random() * 6))} />
+                    <QuoteCard quote={quote} bet={bet} dice={dice} finalAmount={finalAmount} wonDiscount={wonDiscount} onBet={setBet} onRoll={() => {
+                      if (dice === null) setDice(1 + Math.floor(Math.random() * 6));
+                    }} />
                   </div>
                 </div>
               </div>
@@ -244,7 +253,7 @@ export function ExamPricingShowcase() {
               key={exam.key}
               type="button"
               onClick={() => updateActive(exam.key)}
-              className={`rounded-full px-3 py-2 font-mono text-xs transition ${active === exam.key ? "bg-amber-200 text-black" : "bg-white/5 text-white/70 hover:bg-white/10"}`}
+              className={`rounded-full font-mono text-xs transition ${active === exam.key ? "scale-110 bg-amber-200 px-5 py-3 text-black shadow-lg shadow-amber-200/20" : "scale-95 bg-white/5 px-3 py-2 text-white/70 hover:scale-100 hover:bg-white/10"}`}
               aria-label={`切换到 ${exam.title}`}
             >
               {exam.logo}
@@ -252,6 +261,10 @@ export function ExamPricingShowcase() {
           ))}
         </div>
         <p className="mt-4 text-center text-xs text-white/45">当前：{activeExam.title}</p>
+        <DebugVisitorPanel open={debugOpen} payload={debugPayload} onToggle={() => {
+          console.log("Paulwie visitor debug", debugPayload);
+          setDebugOpen((current) => !current);
+        }} />
       </div>
     </section>
   );
@@ -313,6 +326,7 @@ function Controls({ exam, state, onChange }: { exam: ExamKey; state: ExamState; 
 }
 
 function QuoteCard({ quote, bet, dice, finalAmount, wonDiscount, onBet, onRoll }: { quote: ExamQuote; bet: Bet; dice: number | null; finalAmount: number; wonDiscount: boolean; onBet: (bet: Bet) => void; onRoll: () => void }) {
+  const hasRolled = dice !== null;
   return (
     <div className="mt-5 rounded-3xl border border-white/15 bg-black/25 p-4">
       <p className="text-xs text-white/50">系统报价</p>
@@ -325,9 +339,9 @@ function QuoteCard({ quote, bet, dice, finalAmount, wonDiscount, onBet, onRoll }
       <div className="mt-5 rounded-2xl border border-amber-200/25 bg-amber-200/10 p-3">
         <p className="text-sm text-amber-100">截图前押大小，猜中立减 ¥500</p>
         <div className="mt-3 flex gap-2">
-          <Button variant={bet === "big" ? "default" : "ghost"} className="border border-white/15 px-4 py-2" onClick={() => onBet("big")}>押大 4-6</Button>
-          <Button variant={bet === "small" ? "default" : "ghost"} className="border border-white/15 px-4 py-2" onClick={() => onBet("small")}>押小 1-3</Button>
-          <Button className="px-4 py-2" onClick={onRoll}>掷骰子</Button>
+          <Button variant={bet === "big" ? "default" : "ghost"} className="border border-white/15 px-4 py-2" disabled={hasRolled} onClick={() => onBet("big")}>押大 4-6</Button>
+          <Button variant={bet === "small" ? "default" : "ghost"} className="border border-white/15 px-4 py-2" disabled={hasRolled} onClick={() => onBet("small")}>押小 1-3</Button>
+          <Button className="px-4 py-2" disabled={hasRolled} onClick={onRoll}>{hasRolled ? "已掷 1/1" : "掷骰子"}</Button>
         </div>
         {dice !== null && (
           <div className="mt-3 rounded-xl bg-black/25 p-3 text-sm text-white/80">
@@ -340,22 +354,42 @@ function QuoteCard({ quote, bet, dice, finalAmount, wonDiscount, onBet, onRoll }
   );
 }
 
-function DecisionTree({ exam }: { exam: ExamKey }) {
-  const trees: Record<ExamKey, string[]> = {
-    duolingo: ["单次：¥3,500 起，不含申诉/重考", "保分：≤100 分 ¥8,000；100 分以上每 +10 分加 ¥1,500", "有口语小分：目标 - 当前，每 5 分预估 1 节课，每节 ¥500", "地区/设备系数由独立 API 计算，前端不展示"],
-    toefl: ["目标 <4.5：¥8,000", "4.5-5.0：¥9,000", "≥5.0：¥10,000 起", "口语预测：可选 +¥3,000"],
-    gre: ["300 档：¥8,000", "310 档：¥9,000", "320+ 档：¥10,000 起", "写作 4/4.5/5 目标需加项确认"],
-    sat: ["1400：¥10,000", "1500：¥15,000", "1550+：¥20,000", "具体按考期与目标截图确认"],
-    ielts: ["境外线下直出", "头像非本人", "¥80,000 起", "行情波动大，截图私聊确认"],
-    other: ["PTE / TOEIC / LanguageCert：¥10,000 起", "CAEL 换脸：¥30,000 起", "具体看目标分与风控", "截图后微信 Paulwie 私聊"]
+function ExamHighlights({ exam }: { exam: ExamKey }) {
+  const highlights: Record<ExamKey, string[]> = {
+    duolingo: ["单次 / 保分两种服务", "口语与写作训练同源", "适合快速拿分与小分补强"],
+    toefl: ["新托福家考策略", "口语预测可选", "适合短期目标分冲刺"],
+    gre: ["总分与写作拆分规划", "高频题型与节奏训练", "适合申请节点前冲刺"],
+    sat: ["1400-1550+ 分段方案", "满分经验路径拆解", "适合本科申请冲刺"],
+    ielts: ["境外线下直出沟通", "考区与时间需确认", "适合高确定性结果导向"],
+    other: ["PTE / TOEIC / 朗思 / CAEL", "按目标分与风控确认", "截图后微信 Paulwie 私聊"]
   };
 
   return (
-    <div className="mt-5 rounded-3xl border border-white/10 bg-black/20 p-4">
-      <p className="text-xs uppercase tracking-[0.2em] text-white/45">Decision Tree</p>
-      <ul className="mt-3 space-y-2 text-sm text-white/72">
-        {trees[exam].map((item) => <li key={item}>↳ {item}</li>)}
-      </ul>
+    <div className="mt-5 grid gap-2 sm:grid-cols-3">
+      {highlights[exam].map((item) => (
+        <span key={item} className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-xs leading-5 text-white/68">
+          {item}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function DebugVisitorPanel({ open, payload, onToggle }: { open: boolean; payload: unknown; onToggle: () => void }) {
+  return (
+    <div className="mx-auto mt-6 max-w-3xl rounded-3xl border border-dashed border-white/15 bg-white/[0.03] p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-medium text-white">测试用访客信息打印</p>
+          <p className="text-xs text-white/50">上线时可隐藏；现在用于验证设备、语言、时区与 API 返回元数据。</p>
+        </div>
+        <Button className="px-4 py-2" onClick={onToggle}>{open ? "收起 JSON" : "打印 / 展示 JSON"}</Button>
+      </div>
+      {open && (
+        <pre className="mt-4 max-h-72 overflow-auto rounded-2xl bg-black/35 p-4 text-left text-xs leading-5 text-emerald-100/85">
+          {JSON.stringify(payload, null, 2)}
+        </pre>
+      )}
     </div>
   );
 }
